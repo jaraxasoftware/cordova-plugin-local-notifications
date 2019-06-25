@@ -31,7 +31,6 @@
 @interface APPLocalNotification ()
 
 @property (strong, nonatomic) UNUserNotificationCenter* center;
-@property (NS_NONATOMIC_IOSONLY, nullable, weak) id <UNUserNotificationCenterDelegate> delegate;
 @property (readwrite, assign) BOOL deviceready;
 @property (readwrite, assign) BOOL isActive;
 @property (readonly, nonatomic, retain) NSArray* launchDetails;
@@ -477,13 +476,37 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
  */
 - (void) userNotificationCenter:(UNUserNotificationCenter *)center
         willPresentNotification:(UNNotification *)notification
-          withCompletionHandler:(void (^)(UNNotificationPresentationOptions))handler
+          withCompletionHandler:(void (^)(UNNotificationPresentationOptions))completionHandler
+{
+    NSDictionary *data = @{@"notification": notification, @"completionHandler": completionHandler};
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"WillPresentNotification" object:nil userInfo:data];
+}
+
+/**
+ * Called to let your app know which action was selected by the user for a given
+ * notification.
+ */
+- (void) userNotificationCenter:(UNUserNotificationCenter *)center
+ didReceiveNotificationResponse:(UNNotificationResponse *)response
+          withCompletionHandler:(void (^)(void))completionHandler
+{
+    NSDictionary *data = @{@"notificationResponse": response, @"completionHandler": completionHandler};
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"DidReceiveNotificationResponse" object:nil userInfo:data];
+}
+
+- (void)willPresentNotificationHandler:(NSNotification *)notification
+{
+    [self willPresentNotification:[notification.userInfo objectForKey:@"notification"] withCompletionHandler:[notification.userInfo objectForKey:@"completionHandler"]];
+}
+
+- (void)didReceiveNotificationResponseHandler:(NSNotification *)notification
+{
+    [self didReceiveNotificationResponse:[notification.userInfo objectForKey:@"notificationResponse"] withCompletionHandler:[notification.userInfo objectForKey:@"completionHandler"]];
+}
+
+- (void)willPresentNotification:(UNNotification *)notification withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))handler
 {
     UNNotificationRequest* toast = notification.request;
-
-    [_delegate userNotificationCenter:center
-              willPresentNotification:notification
-                withCompletionHandler:handler];
 
     if ([toast.trigger isKindOfClass:UNPushNotificationTrigger.class])
         return;
@@ -503,24 +526,14 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
     }
 }
 
-/**
- * Called to let your app know which action was selected by the user for a given
- * notification.
- */
-- (void) userNotificationCenter:(UNUserNotificationCenter *)center
- didReceiveNotificationResponse:(UNNotificationResponse *)response
-          withCompletionHandler:(void (^)(void))handler
+- (void)didReceiveNotificationResponse:(UNNotificationResponse *)response withCompletionHandler:(void(^)(void))handler
 {
     UNNotificationRequest* toast = response.notification.request;
 
-    [_delegate userNotificationCenter:center
-       didReceiveNotificationResponse:response
-                withCompletionHandler:handler];
-
-    handler();
-
     if ([toast.trigger isKindOfClass:UNPushNotificationTrigger.class])
         return;
+
+    handler();
 
     NSMutableDictionary* data = [[NSMutableDictionary alloc] init];
     NSString* action          = response.actionIdentifier;
@@ -559,12 +572,20 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
 {
     eventQueue = [[NSMutableArray alloc] init];
     _center    = [UNUserNotificationCenter currentNotificationCenter];
-    _delegate  = _center.delegate;
 
     _center.delegate = self;
     [_center registerGeneralNotificationCategory];
 
     [self monitorAppStateChanges];
+
+    [[NSNotificationCenter defaultCenter]addObserver:self
+                                            selector:@selector(willPresentNotificationHandler:)
+                                                name:@"WillPresentNotification"
+                                              object:nil];
+    [[NSNotificationCenter defaultCenter]addObserver:self
+                                            selector:@selector(didReceiveNotificationResponseHandler:)
+                                                name:@"DidReceiveNotificationResponse"
+                                              object:nil];
 }
 
 /**
